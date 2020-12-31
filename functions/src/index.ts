@@ -2,6 +2,7 @@ import * as functions from "firebase-functions";
 import * as admin from "firebase-admin";
 import * as path from "path";
 
+admin.initializeApp()
 const db = admin.firestore();
 
 // // Start writing Firebase Functions
@@ -17,6 +18,7 @@ async function reconcileMobileUpload(
   sourceData: any,
   sourceRef: any
 ) {
+  functions.logger.log("Hello ggg:");
   const publicURLs = await file.getSignedUrl({
     action: "read",
     expires: "03-09-2591",
@@ -47,17 +49,26 @@ export const reconcileMobileUploadFromStorage = functions.storage
       if (!filePath) {
         return null;
       }
+      functions.logger.log("Hello from info. Here's an filePath:", filePath);
 
       // Must be in the mobile—uploads directory
       const fileDir = path.dirname(filePath); // mobile-uploads
-      if (fileDir !== "mobile—uploads") {
+      functions.logger.log("Hello from info. Here's an fileDir:", fileDir);
+      if (fileDir !== "mobile-uploads") {
+        functions.logger.log("Hello from info. Here's an errorrr");
         return null; // Quietly ignore anything else
       }
+      functions.logger.log("Hello Here's i am");
+    
       // Reference the file
       const bucket = admin.storage().bucket();
       const file = bucket.file(filePath);
       // Read the related Firestore Document (source)
+      
+     
       const sourceUid = path.parse(filePath).name; // 123abc
+     
+      functions.logger.log("Hello from info. Here's an sourceUid:", sourceUid);
       const sourcePath = `mobile—uploads/${sourceUid}`;
       const sourceRef = db.doc(sourcePath);
       const sourceDoc = await sourceRef.get();
@@ -68,8 +79,10 @@ export const reconcileMobileUploadFromStorage = functions.storage
       if (!sourceData) {
         throw new Error(`Firestore doc '${sourcePath}' missing`);
       }
-      if (!sourceData.field_path)
+      if (!sourceData.field_path){
         throw new Error(`Firestore doc '${sourcePath}' missing  field`);
+      }
+     
       // Great
       return reconcileMobileUpload(file, sourceData, sourceRef);
     } catch (error) {
