@@ -16,7 +16,8 @@ const db = admin.firestore();
 async function reconcileMobileUpload(
   file: any,
   sourceData: any,
-  sourceRef: any
+  sourceRef: any,
+  filename:string
 ) {
   functions.logger.log("Hello ggg:");
   const publicURLs = await file.getSignedUrl({
@@ -25,13 +26,14 @@ async function reconcileMobileUpload(
   });
 
   const publicURL = publicURLs[0];
+  functions.logger.log("Hello publicurl:",publicURL);
   // Update the destination Document
   const tmp = sourceData.field_path.split("/");
   const destField = tmp.pop();
   const destPath = tmp.join("/");
   const destRef = db.doc(destPath);
   await destRef.update({
-    [destField]: publicURL,
+    [destField]: {'name':filename,'publicURL':publicURL},
   });
 
   // Update the source document
@@ -49,15 +51,34 @@ export const reconcileMobileUploadFromStorage = functions.storage
       if (!filePath) {
         return null;
       }
+      let slug:string|undefined= '';
       functions.logger.log("Hello from info. Here's an filePath:", filePath);
 
       // Must be in the mobile—uploads directory
       const fileDir = path.dirname(filePath); // mobile-uploads
       functions.logger.log("Hello from info. Here's an fileDir:", fileDir);
-      if (fileDir !== "mobile-uploads") {
-        functions.logger.log("Hello from info. Here's an errorrr");
-        return null; // Quietly ignore anything else
+
+      if(fileDir.includes("/"))
+      {
+        let res = fileDir.split("/");
+        let first = res.shift();
+
+        if (first !== "mobile-uploads") {
+          functions.logger.log("Hello from info. Here's an errorrr111111");
+          return null; // Quietly ignore anything else
+        }
+       
+         slug = res.shift();
+        
+
+      }else{
+        if (fileDir !== "mobile-uploads") {
+          functions.logger.log("Hello from info. Here's an errorrr");
+          return null; // Quietly ignore anything else
+        }
+
       }
+     
       functions.logger.log("Hello Here's i am");
     
       // Reference the file
@@ -69,7 +90,13 @@ export const reconcileMobileUploadFromStorage = functions.storage
       const sourceUid = path.parse(filePath).name; // 123abc
      
       functions.logger.log("Hello from info. Here's an sourceUid:", sourceUid);
-      const sourcePath = `mobile—uploads/${sourceUid}`;
+      let sourcePath ='';
+      if(slug === '' || slug === undefined){
+         sourcePath = `mobile-uploads/${sourceUid}`;
+      }else{
+         sourcePath = `mobile-uploads/${slug}/submissionData/${sourceUid}`;
+      }
+      
       const sourceRef = db.doc(sourcePath);
       const sourceDoc = await sourceRef.get();
       if (!sourceDoc.exists) {
@@ -82,9 +109,10 @@ export const reconcileMobileUploadFromStorage = functions.storage
       if (!sourceData.field_path){
         throw new Error(`Firestore doc '${sourcePath}' missing  field`);
       }
+      const filename= sourceUid+sourceData.ext;
      
       // Great
-      return reconcileMobileUpload(file, sourceData, sourceRef);
+      return reconcileMobileUpload(file, sourceData, sourceRef,filename);
     } catch (error) {
       console.error(error);
       return null;
@@ -119,9 +147,51 @@ export const reconcileMobileUploadFromFirestore = functions.firestore
       if (!fileExists) {
         return null;
       }
-      return reconcileMobileUpload(file, sourceData, sourceRef);
+      const filename= snapshot.id+sourceData.ext;
+      return reconcileMobileUpload(file, sourceData, sourceRef,filename);
     } catch (err) {
       console.error(err);
       return null;
     }
   });
+
+
+  export const reconcileMobileUploadFromFirestoreUsingSlug = functions.firestore
+  .document("mobile-uploads/{slug}/submissionData/{mobileUploadUid}")
+  .onCreate(async (snapshot: any, context: any) => {
+    try {
+      const sourceRef = snapshot.ref;
+      const slug= context.params.slug;
+      const sourceData = snapshot.data();
+      // Do nothing if the 'upload_complete' flag is true
+      if (sourceData.upload_complete === true) {
+        return null;
+      }
+      // We must have ext and  field_path
+      if (!sourceData.field_path) {
+        throw new Error("Firestore doc missing field_path");
+      }
+
+      if (!sourceData.ext) {
+        throw new Error("Firestore doc missing ext");
+      }
+
+      // See if the related file exists
+
+      const fitePath = `mobile-uploads/${slug}/${snapshot.id}${sourceData.ext}`;
+      const bucket = admin.storage().bucket();
+      const file = bucket.file(fitePath);
+      const fileExists = (await file.exists())[0]; // the promise returv
+      if (!fileExists) {
+        return null;
+      }
+      const filename= snapshot.id+sourceData.ext;
+      return reconcileMobileUpload(file, sourceData, sourceRef,filename);
+    } catch (err) {
+      console.error(err);
+      return null;
+    }
+  });
+
+
+  
